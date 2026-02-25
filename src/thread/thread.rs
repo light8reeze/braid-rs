@@ -1,8 +1,8 @@
 use std::thread;
 
-pub(crate) struct Thread {
+pub(crate) struct IOThread {
     isStop: bool,
-    thread: std::Thread,
+    thread: Thread,
     
 }
 
