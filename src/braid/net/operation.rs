@@ -1,25 +1,27 @@
 use std::sync::Arc;
-use io_uring::IOUring;
+use io_uring::{IoUring, opcode};
+use io_uring::types::Fd;
+use super::session::IOSession;
 
-trait IOOperation {
-    pub fn request(&self, ring: IOUring);
-    pub fn handle_completion(&self, result: i32);
+pub(crate) trait IOOperation {
+    fn request(&self, ring: IoUring);
+    fn handle_completion(&self, result: i32);
 }
 
-pub(crate) struct IOOperationRecv {
-    buffer: &mut [u8],
+pub(crate) struct IOOperationRecv<'a> {
+    buffer: &'a mut [u8],
     session: Arc<IOSession>,
 }
 
-impl IOOperationRecv {
-    pub fn new(session: Arc<IOSession>) -> Self {
+impl<'a> IOOperationRecv<'a> {
+    fn new(session: Arc<IOSession>) -> Self {
         let buffer = session.get_buffer().as_mut_ptr();
         Self { buffer, session }
     }
 }
 
-impl IOOperation for IOOperationRecv {
-    fn request(&self, ring: IOUring) {
+impl<'a> IOOperation for IOOperationRecv<'a> {
+    fn request(&self, ring: &IoUring) {
         let sq = ring.submission();
 
         unsafe {
@@ -34,23 +36,23 @@ impl IOOperation for IOOperationRecv {
     }
 
     fn handle_completion(&self, result: i32) {
-        self.session.handle_completion(result);
+        self.session.on_received(result);
     }
 }
 
-pub(crate) struct IOOperationSend {
-    buffer: &mut [u8],
+pub(crate) struct IOOperationSend<'a> {
+    buffer: &'a mut [u8],
     sessions: Vec<Arc<IOSession>>,
 }
 
-impl IOOperationSend {
-    pub fn new(buffer: &mut [u8], sessions: Vec<Arc<IOSession>>) -> Self {
+impl<'a> IOOperationSend<'a> {
+    fn new(buffer: &'a mut [u8], sessions: Vec<Arc<IOSession>>) -> Self {
         Self { buffer, sessions }
     }
 }
 
-impl IOOperation for IOOperationSend {
-    fn request(&self, ring: IOUring) {
+impl<'a> IOOperation for IOOperationSend<'a> {
+    fn request(&self, ring: &IoUring) {
         let sq = ring.submission();
 
         unsafe {
@@ -68,7 +70,7 @@ impl IOOperation for IOOperationSend {
 
     fn handle_completion(&self, result: i32) {
         for session in self.sessions {
-            session.handle_completion(result);
+            session.on_sent(result);
         }
     }
 }
@@ -85,7 +87,7 @@ impl IOOperationAccept {
 }
 
 impl IOOperation for IOOperationAccept {
-    fn request(&self, ring: IOUring) {
+    fn request(&self, ring: &IoUring) {
         let sq = ring.submission();
 
         unsafe {
@@ -100,7 +102,7 @@ impl IOOperation for IOOperationAccept {
     }
 
     fn handle_completion(&self, result: i32) {
-        self.session.handle_completion(result);
+        self.session.on_accepted(result);
     }
 }
 
@@ -115,7 +117,7 @@ impl IOOperationClose {
 }
 
 impl IOOperation for IOOperationClose {
-    fn request(&self, ring: IOUring) {
+    fn request(&self, ring: &IoUring) {
         let sq = ring.submission();
 
         unsafe {
@@ -128,6 +130,6 @@ impl IOOperation for IOOperationClose {
     }
 
     fn handle_completion(&self, result: i32) {
-        self.session.handle_completion(result);
+        self.session.on_closed(result);
     }
 }
